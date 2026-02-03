@@ -22,9 +22,9 @@ echo -e "\n Loading..."
 GEN_MAC=02:$(openssl rand -hex 5 | awk '{print toupper($0)}' | sed 's/\(..\)/\1:/g; s/.$//')
 RANDOM_UUID="$(cat /proc/sys/kernel/random/uuid)"
 METHOD=""
-NSAPP="ubuntu-2204-vm"
+NSAPP="ubuntu-2004-vm"
 var_os="ubuntu"
-var_version="2204"
+var_version="2004"
 
 YW=$(echo "\033[33m")
 BL=$(echo "\033[36m")
@@ -199,14 +199,19 @@ function exit-script() {
 
 function default_settings() {
   VMID=$(get_valid_nextid)
-  FORMAT=",efitype=4m"
-  MACHINE=""
-  DISK_SIZE="5G"
+  # FORMAT=",efitype=4m"
+  # MACHINE=""
+  FORMAT=""
+  MACHINE=" -machine q35"
+  # DISK_SIZE="5G"
+  DISK_SIZE="4G"
   DISK_CACHE=""
   HN="ubuntu"
   CPU_TYPE=""
-  CORE_COUNT="2"
-  RAM_SIZE="2048"
+  # CORE_COUNT="2"
+  CORE_COUNT="1"
+  # RAM_SIZE="2048"
+  RAM_SIZE="1024"
   BRG="vmbr0"
   MAC="$GEN_MAC"
   VLAN=""
@@ -497,7 +502,7 @@ qm importdisk $VMID ${FILE} $STORAGE ${DISK_IMPORT:-} 1>&/dev/null
 qm set $VMID \
   -efidisk0 ${DISK0_REF}${FORMAT} \
   -scsi0 ${DISK1_REF},${DISK_CACHE}${THIN}size=${DISK_SIZE} \
-  -ide2 ${STORAGE}:cloudinit \
+  -ide2 ${STORAGE}:scsi1:local-lvm:cloudinit,format=raw \
   -boot order=scsi0 \
   -serial0 socket >/dev/null
 DESCRIPTION=$(
