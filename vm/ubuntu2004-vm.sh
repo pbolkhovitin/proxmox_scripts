@@ -199,11 +199,8 @@ function exit-script() {
 
 function default_settings() {
   VMID=$(get_valid_nextid)
-  # FORMAT=",efitype=4m"
-  # MACHINE=""
-  FORMAT=""
+  FORMAT=",efitype=4m"
   MACHINE=" -machine q35"
-  # DISK_SIZE="5G"
   DISK_SIZE="4G"
   DISK_CACHE=""
   HN="ubuntu"
@@ -502,7 +499,7 @@ qm importdisk $VMID ${FILE} $STORAGE ${DISK_IMPORT:-} 1>&/dev/null
 qm set $VMID \
   -efidisk0 ${DISK0_REF}${FORMAT} \
   -scsi0 ${DISK1_REF},${DISK_CACHE}${THIN}size=${DISK_SIZE} \
-  -ide2 ${STORAGE}:scsi1:local-lvm:cloudinit,format=raw \
+  -ide2 ${STORAGE}:cloudinit \
   -boot order=scsi0 \
   -serial0 socket >/dev/null
 DESCRIPTION=$(
@@ -519,7 +516,7 @@ DESCRIPTION=$(
       <img src='https://img.shields.io/badge/&#x2615;-Buy us a coffee-blue' alt='spend Coffee' />
     </a>
   </p>
-  
+
   <span style='margin: 0 10px;'>
     <i class="fa fa-github fa-fw" style="color: #f5f5f5;"></i>
     <a href='https://github.com/community-scripts/ProxmoxVE' target='_blank' rel='noopener noreferrer' style='text-decoration: none; color: #00617f;'>GitHub</a>
