@@ -50,10 +50,19 @@ focal-server-cloudimg-amd64-disk-kvm.img
 ./ubuntu2004-template.sh <TEMPLATE_VMID> <RAM_MB> <DISK_GB> <CORES>
 ```
 
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/pbolkhovitin/proxmox_scripts/main/vm/ubuntu2004-template.sh)" -- <VMID> <RAM_MB> <DISK_GB> <CORES>
+```
+
+
 ### Пример:
 
 ```bash
 ./ubuntu2004-template.sh 9000 512 4 1
+```
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/pbolkhovitin/proxmox_scripts/main/vm/ubuntu2004-template.sh)" -- 9000 512 4 1
 ```
 
 После выполнения VM автоматически будет переведена в **template**.
