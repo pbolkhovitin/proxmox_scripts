@@ -279,7 +279,19 @@ verify_image_integrity() {
 
 wait_for_vm_ip() {
   echo -n "Ожидание загрузки гостевого агента..."
-  sleep 30  # Даем время на загрузку
+  local agent_timeout=60
+  local agent_start=$(date +%s)
+
+  # Ждем, пока гостевой агент станет доступен
+  while ! qm guest exec "$VMID" -- true 2>/dev/null; do
+    if [[ $(($(date +%s) - agent_start)) -gt $agent_timeout ]]; then
+      echo " Таймаут гостевого агента!"
+      echo "Проверьте, установлен ли qemu-guest-agent в образе"
+      return 1
+    fi
+    sleep 5
+    echo -n "."
+  done
   echo " OK"
 
   echo -n "Ожидание IP-адреса VM..."
@@ -293,8 +305,15 @@ wait_for_vm_ip() {
 
     if [[ $(($(date +%s) - start_time)) -gt $timeout ]]; then
       echo " Таймаут!"
-      echo "Проверьте сетевые настройки и DHCP"
-      exit 1
+      echo "Проверьте:"
+      echo "1. DHCP сервер на сети"
+      echo "2. Настройки сети в Proxmox (мост vmbr0)"
+      echo "3. Cloud-init конфигурацию"
+      echo ""
+      echo "Можно продолжить вручную:"
+      echo "  qm terminal $VMID"
+      echo "  sudo netplan apply"
+      return 1
     fi
     sleep 3
     echo -n "."
