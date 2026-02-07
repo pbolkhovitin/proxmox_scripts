@@ -25,6 +25,11 @@ RAM="$3"
 DISK="${4}G"
 CORES="$5"
 
+CUSTOM_PACKAGES=""
+if [[ $# -eq 6 ]]; then
+    CUSTOM_PACKAGES="$6"
+f
+
 # ===== КОНСТАНТЫ =====
 declare -A VERSION_MAP=(
   ["20.04"]="focal"
@@ -71,7 +76,7 @@ declare -A DEFAULT_PACKAGES=(
 )
 
 # Формируем полный список пакетов
-REQUIRED_PACKAGES="${DEFAULT_PACKAGES[base]} ${DEFAULT_PACKAGES[$UBUNTU_VERSION]}"
+REQUIRED_PACKAGES="${DEFAULT_PACKAGES[base]} ${DEFAULT_PACKAGES[$UBUNTU_VERSION]} $CUSTOM_PACKAGES"
 
 # ===== ФУНКЦИИ =====
 check_pve_environment() {
