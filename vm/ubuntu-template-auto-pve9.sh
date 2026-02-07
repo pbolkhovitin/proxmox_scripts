@@ -19,6 +19,16 @@ set -euo pipefail
   exit 1
 }
 
+FORCE_DOWNLOAD=0
+if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
+  FORCE_DOWNLOAD=1
+  shift  # Убираем флаг из аргументов
+  [[ $# -ne 5 ]] && {
+    echo "Usage: $0 [--force] <TEMPLATE_VMID> <UBUNTU_VERSION> <RAM_MB> <DISK_GB> <CORES>"
+    exit 1
+  }
+fi
+
 VMID="$1"
 UBUNTU_VERSION="$2"
 RAM="$3"
@@ -130,17 +140,73 @@ check_pve_environment() {
 }
 
 download_image() {
-  echo "=== Загрузка образа Ubuntu $UBUNTU_VERSION ==="
+  echo "=== Проверка и загрузка образа Ubuntu $UBUNTU_VERSION ==="
 
   mkdir -p "$(dirname "$IMAGE")"
 
+  local need_download=1
+  local image_age_days=0
+
+  # Проверяем существование образа
   if [[ -f "$IMAGE" ]]; then
-    echo "✓ Образ уже существует"
+    echo "✓ Образ найден: $(ls -lh "$IMAGE" | awk '{print $5}')"
+
+    if [[ $FORCE_DOWNLOAD -eq 1 ]]; then
+      echo "⚡ Принудительное обновление образа (флаг --force)"
+      rm -f "$IMAGE"
+      need_download=1
+    fi
+
+    # Проверяем возраст образа (в днях)
+    local image_timestamp=$(stat -c %Y "$IMAGE" 2>/dev/null || echo "0")
+    local current_timestamp=$(date +%s)
+    image_age_days=$(( (current_timestamp - image_timestamp) / 86400 ))
+
+    # Образ считается актуальным если ему меньше 7 дней
+    if [[ $image_age_days -lt 7 ]]; then
+      echo "✓ Образ актуален ($image_age_days дней)"
+      need_download=0
+    else
+      echo "⚠️  Образ устарел ($image_age_days дней)"
+      read -p "   Обновить? (Y/n): " -n 1 -r
+      echo
+      if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        echo "🗑️  Удаляем старый образ..."
+        rm -f "$IMAGE"
+        need_download=1
+      else
+        echo "✓ Используем существующий образ (устаревший)"
+        need_download=0
+      fi
+    fi
   else
-    echo "Загрузка образа..."
-    wget -q --show-progress --progress=bar:force -O "$IMAGE.tmp" "$IMAGE_URL"
-    mv "$IMAGE.tmp" "$IMAGE"
-    echo "✓ Образ загружен"
+    echo "✗ Образ не найден"
+    need_download=1
+  fi
+
+  # Скачиваем если нужно
+  if [[ $need_download -eq 1 ]]; then
+    echo "⬇️  Загрузка образа из: $IMAGE_URL"
+    echo "   Это может занять несколько минут..."
+
+    # Используем wget с продолжением и проверкой
+    if wget -q --show-progress --continue --progress=bar:force:noscroll -O "$IMAGE.tmp" "$IMAGE_URL"; then
+      mv "$IMAGE.tmp" "$IMAGE"
+      echo "✅ Образ успешно загружен: $(ls -lh "$IMAGE" | awk '{print $5}')"
+
+      # Устанавливаем правильные права
+      chmod 644 "$IMAGE"
+    else
+      echo "❌ Ошибка загрузки образа"
+      rm -f "$IMAGE.tmp" 2>/dev/null
+      exit 1
+    fi
+  fi
+
+  # Финальная проверка файла
+  if [[ ! -f "$IMAGE" ]]; then
+    echo "❌ Критическая ошибка: образ не доступен после проверки"
+    exit 1
   fi
 }
 
@@ -242,6 +308,13 @@ main() {
   # Этап 1: Подготовка
   check_pve_environment
   download_image
+
+  echo "=== Проверка готовности образа ==="
+  if [[ ! -f "$IMAGE" ]] || [[ ! -s "$IMAGE" ]]; then
+    echo "❌ Ошибка: образ не найден или пустой: $IMAGE"
+    exit 1
+  fi
+  echo "✓ Образ готов к импорту: $(ls -lh "$IMAGE")"
 
   # Этап 2: Создание VM с временной сетью
   echo "=== Создание VM с временной конфигурацией ==="
