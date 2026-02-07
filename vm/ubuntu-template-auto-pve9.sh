@@ -413,7 +413,7 @@ main() {  # Создаем лог-файл
     --agent enabled=1,fstrim_cloned_disks=1 \
     --machine q35 \
     --bios ovmf \
-    --efidisk0 "$STORAGE:0,format=qcow2,size=4M" \
+    --efidisk0 "$STORAGE:0,format=raw,size=4M" \
     --cipassword "$VM_PASSWORD" \
     --ciuser "$VM_USER" \
     --ipconfig0 ip=dhcp \
