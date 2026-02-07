@@ -55,7 +55,7 @@ REQUIRED_PACKAGES="ipcalc iproute2 netplan.io net-tools iperf3 iptables iputils-
 # ===== ФУНКЦИИ =====
 wait_for_vm_ip() {
     echo -n "Ожидание IP-адреса VM..."
-    local timeout=120
+    local timeout=240
     local start_time=$(date +%s)
 
     while [[ -z "$VM_IP" ]]; do
