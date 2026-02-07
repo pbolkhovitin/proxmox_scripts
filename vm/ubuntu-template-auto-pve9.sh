@@ -121,7 +121,7 @@ check_pve_environment() {
 
   # Определяем сетевой драйвер на основе версии Proxmox
   if [[ "$pve_major" -ge 9 ]]; then
-    NET_MODEL="virtio-net-pci"
+    NET_MODEL="virtio"
   else
     NET_MODEL="virtio"
   fi
