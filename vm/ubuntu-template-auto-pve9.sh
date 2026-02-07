@@ -28,7 +28,7 @@ CORES="$5"
 CUSTOM_PACKAGES=""
 if [[ $# -eq 6 ]]; then
     CUSTOM_PACKAGES="$6"
-f
+fi
 
 # ===== КОНСТАНТЫ =====
 declare -A VERSION_MAP=(
