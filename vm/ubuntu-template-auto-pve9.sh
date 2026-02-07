@@ -78,6 +78,9 @@ declare -A DEFAULT_PACKAGES=(
 # Формируем полный список пакетов
 REQUIRED_PACKAGES="${DEFAULT_PACKAGES[base]} ${DEFAULT_PACKAGES[$UBUNTU_VERSION]} $CUSTOM_PACKAGES"
 
+# Глобальная переменная для сетевого драйвера
+NET_MODEL="virtio"  # Значение по умолчанию
+
 # ===== ФУНКЦИИ =====
 check_pve_environment() {
   echo "=== Проверка окружения Proxmox VE 9 ==="
@@ -90,6 +93,14 @@ check_pve_environment() {
   else
     pve_major=0
   fi
+
+  # Определяем сетевой драйвер на основе версии Proxmox
+  if [[ "$pve_major" -ge 9 ]]; then
+    NET_MODEL="virtio-net-pci"
+  else
+    NET_MODEL="virtio"
+  fi
+  echo "✓ Сетевой драйвер: $NET_MODEL (Proxmox $pve_major)"
 
   if [[ "$pve_major" -lt 7 ]]; then
     echo "⚠️  Внимание: Скрипт оптимизирован для Proxmox VE 7+"
@@ -240,7 +251,7 @@ main() {
     --balloon "$((RAM/2 > 512 ? RAM/2 : 512))" \
     --cores "$CORES" \
     --cpu host \
-    --net0 "virtio-net-pci,bridge=$TEMP_BRIDGE,firewall=1" \
+    --net0 "$NET_MODEL,bridge=$TEMP_BRIDGE,firewall=1" \
     --scsihw virtio-scsi-pci \
     --boot order=scsi0 \
     --serial0 socket \
@@ -286,7 +297,7 @@ main() {
     --sshkey /dev/null \
     --cipassword "" \
     --ciupgrade 0 \
-    --net0 "virtio-net-pci,firewall=1"  # Убираем временный bridge
+    --net0 "$NET_MODEL,firewall=1"  # Убираем временный bridge
 
   # Оптимизация размера диска
   echo "Оптимизация размера диска..."
