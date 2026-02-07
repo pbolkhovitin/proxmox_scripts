@@ -147,17 +147,21 @@ download_image() {
   local need_download=1
   local image_age_days=0
 
-  # Проверяем существование образа
+  # 1. Проверяем флаг --force ДО любой работы с файлом
+  if [[ $FORCE_DOWNLOAD -eq 1 ]]; then
+    echo "⚡ Принудительное обновление образа (флаг --force)"
+    if [[ -f "$IMAGE" ]]; then
+      rm -f "$IMAGE"
+      echo "🗑️  Старый образ удалён"
+    fi
+  fi
+
+  # 2. Теперь проверяем существование образа
   if [[ -f "$IMAGE" ]]; then
     echo "✓ Образ найден: $(ls -lh "$IMAGE" | awk '{print $5}')"
 
-    if [[ $FORCE_DOWNLOAD -eq 1 ]]; then
-      echo "⚡ Принудительное обновление образа (флаг --force)"
-      rm -f "$IMAGE"
-      need_download=1
-    fi
-
     # Проверяем возраст образа (в днях)
+    # Теперь stat выполняется только если файл существует
     local image_timestamp=$(stat -c %Y "$IMAGE" 2>/dev/null || echo "0")
     local current_timestamp=$(date +%s)
     image_age_days=$(( (current_timestamp - image_timestamp) / 86400 ))
@@ -196,6 +200,9 @@ download_image() {
 
       # Устанавливаем правильные права
       chmod 644 "$IMAGE"
+
+      # Обновляем время модификации файла
+      touch "$IMAGE"
     else
       echo "❌ Ошибка загрузки образа"
       rm -f "$IMAGE.tmp" 2>/dev/null
@@ -207,6 +214,45 @@ download_image() {
   if [[ ! -f "$IMAGE" ]]; then
     echo "❌ Критическая ошибка: образ не доступен после проверки"
     exit 1
+  fi
+
+  # Дополнительная проверка размера файла
+  local min_size=$((100 * 1024 * 1024))  # 100MB минимальный размер
+  local actual_size=$(stat -c %s "$IMAGE" 2>/dev/null || echo 0)
+
+  if [[ $actual_size -lt $min_size ]]; then
+    echo "❌ Ошибка: образ слишком мал ($((actual_size/1024/1024))MB), вероятно загрузка не удалась"
+    exit 1
+  fi
+}
+
+verify_image_integrity() {
+  echo "🔍 Проверка целостности образа..."
+
+  # Получаем размер из заголовков URL
+  local expected_size=0
+  expected_size=$(curl -sI "$IMAGE_URL" | grep -i "content-length" | awk '{print $2}' | tr -d '\r')
+
+  if [[ -z "$expected_size" ]] || [[ "$expected_size" -eq 0 ]]; then
+    echo "⚠️  Не удалось проверить ожидаемый размер"
+    return 0
+  fi
+
+  local actual_size=$(stat -c %s "$IMAGE" 2>/dev/null || echo 0)
+
+  if [[ $actual_size -eq $expected_size ]]; then
+    echo "✓ Целостность образа подтверждена ($((actual_size/1024/1024))MB)"
+  else
+    echo "⚠️  Размер образа отличается от ожидаемого"
+    echo "   Ожидалось: $((expected_size/1024/1024))MB ($expected_size байт)"
+    echo "   Фактически: $((actual_size/1024/1024))MB ($actual_size байт)"
+    echo "   Разница: $(( (actual_size - expected_size) / 1024 / 1024 ))MB"
+
+    # Если разница небольшая (< 1%), считаем приемлемым
+    local diff_percent=$(( (actual_size * 100) / expected_size - 100 ))
+    if [[ ${diff_percent#-} -lt 1 ]]; then
+      echo "✓ Небольшая разница (${diff_percent}%) допустима"
+    fi
   fi
 }
 
@@ -308,6 +354,7 @@ main() {
   # Этап 1: Подготовка
   check_pve_environment
   download_image
+  verify_image_integrity
 
   echo "=== Проверка готовности образа ==="
   if [[ ! -f "$IMAGE" ]] || [[ ! -s "$IMAGE" ]]; then
