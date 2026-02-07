@@ -13,6 +13,8 @@ set -euo pipefail
 # $4 — размер диска в гигабайтах
 # $5 — количество CPU ядер
 # Обработка флага --force
+FORCE_DOWNLOAD=0
+
 if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
   FORCE_DOWNLOAD=1
   shift
@@ -95,7 +97,10 @@ declare -A DEFAULT_PACKAGES=(
 )
 
 # Формируем полный список пакетов
-REQUIRED_PACKAGES="${DEFAULT_PACKAGES[base]} ${DEFAULT_PACKAGES[$UBUNTU_VERSION]} $CUSTOM_PACKAGES"
+REQUIRED_PACKAGES="${DEFAULT_PACKAGES[base]} ${DEFAULT_PACKAGES[$UBUNTU_VERSION]}"
+if [[ -n "$CUSTOM_PACKAGES" ]]; then
+  REQUIRED_PACKAGES="$REQUIRED_PACKAGES $CUSTOM_PACKAGES"
+fi
 
 # Глобальная переменная для сетевого драйвера
 NET_MODEL="virtio"  # Значение по умолчанию
@@ -103,6 +108,7 @@ NET_MODEL="virtio"  # Значение по умолчанию
 # ===== ФУНКЦИИ =====
 check_pve_environment() {
   echo "=== Проверка окружения Proxmox VE 9 ==="
+  echo "Force mode: $FORCE_DOWNLOAD"
 
   [[ $EUID -ne 0 ]] && { echo "Ошибка: Запустите от root"; exit 1; }
 
@@ -315,31 +321,26 @@ wait_for_ssh() {
 install_packages_smart() {
   echo "=== Умная установка пакетов ==="
 
-  # Добавьте таймаут и обработку ошибок
+  # 1. Обновление системы с обработкой ошибок
   echo "1. Обновление системы..."
   if ! qm guest exec "$VMID" -- timeout 300 bash -c \
     "sudo DEBIAN_FRONTEND=noninteractive apt update && sudo apt upgrade -y" 2>/dev/null; then
     echo "⚠️  Предупреждение: не удалось обновить систему, продолжаем..."
   fi
 
-  # Сначала обновляем
-  echo "1. Обновление системы..."
-  qm guest exec "$VMID" -- timeout 300 bash -c \
-    "sudo DEBIAN_FRONTEND=noninteractive apt update && sudo apt upgrade -y"
-
-  # Проверяем и устанавливаем только отсутствующие пакеты
+  # 2. Проверяем и устанавливаем только отсутствующие пакеты
   echo "2. Проверка пакетов..."
   local check_script="
     missing=''
     for pkg in $REQUIRED_PACKAGES; do
-      if ! dpkg -l | grep -q \"^ii  \$pkg \"; then
-        missing=\"\$missing \$pkg\"
-        echo \"▸ \$pkg: будет установлен\"
+      if ! dpkg -l | grep -q \"^ii  \\\$pkg \"; then
+        missing=\"\\\$missing \\\$pkg\"
+        echo \"▸ \\\$pkg: будет установлен\"
       else
-        echo \"✓ \$pkg: уже установлен\"
+        echo \"✓ \\\$pkg: уже установлен\"
       fi
     done
-    echo \"Missing:\$missing\"
+    echo \"Missing:\\\$missing\"
   "
 
   local result=$(qm guest exec "$VMID" -- bash -c "$check_script")
@@ -348,23 +349,24 @@ install_packages_smart() {
   if [[ -n "$missing" ]]; then
     echo "3. Установка отсутствующих пакетов..."
     qm guest exec "$VMID" -- timeout 600 bash -c \
-      "sudo DEBIAN_FRONTEND=noninteractive apt install -y $missing"
+      "sudo DEBIAN_FRONTEND=noninteractive apt install -y $missing" || \
+      echo "⚠️  Не удалось установить некоторые пакеты"
     echo "✓ Пакеты установлены"
   else
     echo "3. Все пакеты уже установлены"
   fi
 
-  # Очистка и оптимизация
+  # 4. Очистка и оптимизация
   echo "4. Очистка кэша..."
   qm guest exec "$VMID" -- bash -c \
-    "sudo apt autoremove -y && sudo apt clean && sudo apt autoclean"
+    "sudo apt autoremove -y && sudo apt clean && sudo apt autoclean" 2>/dev/null || true
 
-  # Включаем сервисы
+  # 5. Включаем сервисы
   echo "5. Настройка сервисов..."
   qm guest exec "$VMID" -- bash -c \
     "sudo systemctl enable --now qemu-guest-agent 2>/dev/null || true"
 
-  # Создаем файл с информацией об установке
+  # 6. Создаем файл с информацией об установке
   qm guest exec "$VMID" -- bash -c \
     "echo 'Ubuntu $UBUNTU_VERSION Template (Proxmox VE 9 optimized)' > /opt/pve-template-info.txt
      echo 'Created: $(date)' >> /opt/pve-template-info.txt
@@ -436,7 +438,7 @@ main() {  # Создаем лог-файл
   # Этап 5: Завершение
   echo "=== Завершение работы и очистка ==="
   echo "Выключение VM..."
-  qm guest exec "$VMID" -- timeout 60 bash -c "sudo poweroff" || true
+  qm guest exec "$VMID" -- timeout 10 bash -c "sudo poweroff" || true
 
   # Ждем остановки
   until qm status "$VMID" | grep -q "stopped"; do
