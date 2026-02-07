@@ -12,22 +12,21 @@ set -euo pipefail
 # $3 — RAM в мегабайтах
 # $4 — размер диска в гигабайтах
 # $5 — количество CPU ядер
-[[ $# -ne 5 ]] && {
-  echo "Usage: $0 <TEMPLATE_VMID> <UBUNTU_VERSION> <RAM_MB> <DISK_GB> <CORES>"
+# Обработка флага --force
+if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
+  FORCE_DOWNLOAD=1
+  shift
+  echo "⚡ Режим принудительного обновления включен"
+fi
+
+# Проверка количества аргументов после обработки флагов
+[[ $# -lt 5 ]] && {
+  echo "Usage: $0 [--force|-f] <TEMPLATE_VMID> <UBUNTU_VERSION> <RAM_MB> <DISK_GB> <CORES> [CUSTOM_PACKAGES]"
   echo "Пример: $0 9100 22.04 2048 30 4"
+  echo "Пример с force: $0 --force 9100 22.04 2048 30 4 'vim git'"
   echo "Доступные версии Ubuntu: 20.04, 22.04, 24.04"
   exit 1
 }
-
-FORCE_DOWNLOAD=0
-if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
-  FORCE_DOWNLOAD=1
-  shift  # Убираем флаг из аргументов
-  [[ $# -ne 5 ]] && {
-    echo "Usage: $0 [--force] <TEMPLATE_VMID> <UBUNTU_VERSION> <RAM_MB> <DISK_GB> <CORES>"
-    exit 1
-  }
-fi
 
 VMID="$1"
 UBUNTU_VERSION="$2"
@@ -35,10 +34,14 @@ RAM="$3"
 DISK="${4}G"
 CORES="$5"
 
+# Обработка дополнительных пакетов
 CUSTOM_PACKAGES=""
-if [[ $# -eq 6 ]]; then
-    CUSTOM_PACKAGES="$6"
+if [[ $# -ge 6 ]]; then
+    shift 5
+    CUSTOM_PACKAGES="$@"
+    echo "📦 Дополнительные пакеты: $CUSTOM_PACKAGES"
 fi
+
 
 # ===== КОНСТАНТЫ =====
 declare -A VERSION_MAP=(
@@ -75,7 +78,13 @@ declare -A IMAGE_URLS=(
 )
 
 IMAGE_URL="${IMAGE_URLS[$UBUNTU_VERSION]}"
-IMAGE="/var/lib/vz/template/iso/ubuntu-${UBUNTU_CODENAME}-cloudimg-amd64.img"
+ISO_PATH="/var/lib/vz/template/iso"
+# Проверяем существование
+if [[ ! -d "$ISO_PATH" ]]; then
+    ISO_PATH="/tmp"
+    echo "⚠️  Директория ISO не найдена, использую /tmp"
+fi
+IMAGE="${ISO_PATH}/ubuntu-${UBUNTU_CODENAME}-cloudimg-amd64.img"
 
 # Пакеты для установки (зависит от версии Ubuntu)
 declare -A DEFAULT_PACKAGES=(
@@ -229,6 +238,12 @@ download_image() {
 verify_image_integrity() {
   echo "🔍 Проверка целостности образа..."
 
+  # Проверяем доступность curl
+  if ! command -v curl &>/dev/null; then
+    echo "⚠️  curl не установлен, пропускаем проверку"
+    return 0
+  fi
+
   # Получаем размер из заголовков URL
   local expected_size=0
   expected_size=$(curl -sI "$IMAGE_URL" | grep -i "content-length" | awk '{print $2}' | tr -d '\r')
@@ -257,6 +272,10 @@ verify_image_integrity() {
 }
 
 wait_for_vm_ip() {
+  echo -n "Ожидание загрузки гостевого агента..."
+  sleep 30  # Даем время на загрузку
+  echo " OK"
+
   echo -n "Ожидание IP-адреса VM..."
   local timeout=180
   local start_time=$(date +%s)
@@ -295,6 +314,13 @@ wait_for_ssh() {
 
 install_packages_smart() {
   echo "=== Умная установка пакетов ==="
+
+  # Добавьте таймаут и обработку ошибок
+  echo "1. Обновление системы..."
+  if ! qm guest exec "$VMID" -- timeout 300 bash -c \
+    "sudo DEBIAN_FRONTEND=noninteractive apt update && sudo apt upgrade -y" 2>/dev/null; then
+    echo "⚠️  Предупреждение: не удалось обновить систему, продолжаем..."
+  fi
 
   # Сначала обновляем
   echo "1. Обновление системы..."
@@ -347,9 +373,15 @@ install_packages_smart() {
 }
 
 # ===== ОСНОВНОЙ ПРОЦЕСС =====
-main() {
+main() {  # Создаем лог-файл
+  LOG_FILE="/var/log/pve-template-${VMID}-$(date +%Y%m%d-%H%M%S).log"
+  exec 3>&1 4>&2  # Сохраняем оригинальные дескрипторы
+  exec > >(tee -a "$LOG_FILE") 2>&1
+
   echo "🔧 Proxmox VE 9 Auto-Template Creator (Ubuntu $UBUNTU_VERSION)"
-  echo "=========================================="
+  echo "Логирование: $LOG_FILE"
+
+  trap 'exec 1>&3 2>&4' EXIT
 
   # Этап 1: Подготовка
   check_pve_environment
